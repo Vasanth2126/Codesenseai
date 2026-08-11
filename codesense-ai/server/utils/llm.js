@@ -61,6 +61,28 @@ export async function askAI({ question, contextChunks }) {
         max_tokens: 1024,
         messages: [
           { role: "system", content: systemPrompt },
+          // Few-shot examples: these teach the model the exact answer shape
+          // we want (short, direct, one inline citation per file, no trailing
+          // summary) far more reliably than instructions alone.
+          {
+            role: "user",
+            content:
+              "Context from the repository:\n\n[Chunk 1 — utils/hash.js]\nfunction hashPassword(pw) {\n  return bcrypt.hash(pw, 10);\n}\n\nQuestion: How are passwords stored?",
+          },
+          {
+            role: "assistant",
+            content:
+              "Passwords are hashed with bcrypt at a cost factor of 10 before storage (utils/hash.js). Nothing else in the given context touches password storage.",
+          },
+          {
+            role: "user",
+            content:
+              "Context from the repository:\n\n[Chunk 1 — routes/health.js]\nrouter.get('/health', (req, res) => res.send('ok'));\n\nQuestion: Where is the payment logic?",
+          },
+          {
+            role: "assistant",
+            content: "The provided context doesn't include any payment-related code — only a health check route (routes/health.js).",
+          },
           {
             role: "user",
             content: `Context from the repository:\n\n${contextBlock}\n\nQuestion: ${question}`,
