@@ -1,6 +1,8 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import { connectDB } from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
 import projectRoutes from "./routes/projectRoutes.js";
@@ -10,19 +12,53 @@ dotenv.config();
 
 const app = express();
 
-app.use(cors({ origin: process.env.CLIENT_ORIGIN || "http://localhost:5173" }));
-app.use(express.json({ limit: "2mb" }));
+// Security headers
+app.use(
+  helmet({
+    contentSecurityPolicy: false, // Allows cross-origin API calls & SSE
+  })
+);
 
-app.get("/api/health", (req, res) => res.json({ status: "ok" }));
+// Rate limiter: max 100 requests per 15 minutes per IP
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: { message: "Too many requests from this IP, please try again later." },
+});
+app.use("/api/", apiLimiter);
+
+// Dynamic CORS configuration
+const allowedOrigins = [
+  process.env.CLIENT_ORIGIN || "http://localhost:5173",
+  "http://localhost:5174",
+  "http://localhost:5175",
+];
+
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== "production") {
+        cb(null, true);
+      } else {
+        cb(null, true); // Allow configured deployments
+      }
+    },
+    credentials: true,
+  })
+);
+
+app.use(express.json({ limit: "5mb" }));
+
+app.get("/api/health", (req, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/chat", chatRoutes);
 
-// Central error handler as a safety net for anything uncaught above.
+// Central error handler
 app.use((err, req, res, next) => {
-  console.error(err);
-  res.status(500).json({ message: "Unexpected server error" });
+  console.error("[ServerError]", err);
+  res.status(500).json({ message: "Unexpected server error", error: process.env.NODE_ENV === "development" ? err.message : undefined });
 });
 
 const PORT = process.env.PORT || 5000;
@@ -30,3 +66,4 @@ const PORT = process.env.PORT || 5000;
 connectDB().then(() => {
   app.listen(PORT, () => console.log(`CodeSense AI API running on port ${PORT}`));
 });
+

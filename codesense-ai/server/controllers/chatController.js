@@ -1,10 +1,88 @@
 import Project from "../models/Project.js";
 import Document from "../models/Document.js";
 import ChatMessage from "../models/ChatMessage.js";
-import { embedText, cosineSimilarity, askAI } from "../utils/llm.js";
+import { embedText, cosineSimilarity, askAI, streamAI } from "../utils/llm.js";
 
 const TOP_K = 6;
 const README_SAMPLE_SIZE = 25; // chunks sampled across the repo for the README prompt
+
+export async function streamQuestion(req, res) {
+  const { id: projectId } = req.params;
+  const { question } = req.body;
+
+  if (!question) return res.status(400).json({ message: "question is required" });
+
+  try {
+    const project = await Project.findOne({ _id: projectId, owner: req.userId });
+    if (!project) return res.status(404).json({ message: "Project not found" });
+    if (project.status !== "ready") {
+      return res.status(409).json({ message: `Project is not ready yet (status: ${project.status})` });
+    }
+
+    // Set up SSE headers
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      "Connection": "keep-alive",
+    });
+
+    const queryEmbedding = await embedText(question);
+    const allChunks = await Document.find({ project: project._id });
+
+    const keywords = (question.toLowerCase().match(/[a-z0-9_]{3,}/g) || []);
+
+    const ranked = allChunks
+      .map((chunk) => {
+        const baseScore = cosineSimilarity(queryEmbedding, chunk.embedding);
+        const lowerContent = chunk.content.toLowerCase();
+        const matchBoost = keywords.reduce(
+          (sum, kw) => sum + (lowerContent.includes(kw) ? 0.05 : 0),
+          0
+        );
+        return { chunk, score: baseScore + matchBoost };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, TOP_K)
+      .map((r) => r.chunk);
+
+    const citedFiles = [...new Set(ranked.map((c) => c.filePath))];
+
+    // Send metadata immediately to client
+    res.write(`data: ${JSON.stringify({ type: "meta", citedFiles })}\n\n`);
+
+    await ChatMessage.create({ project: project._id, user: req.userId, role: "user", content: question });
+
+    await streamAI({
+      question,
+      contextChunks: ranked.map((c) => ({ filePath: c.filePath, content: c.content })),
+      onToken: (token) => {
+        res.write(`data: ${JSON.stringify({ type: "token", token })}\n\n`);
+      },
+      onComplete: async (fullAnswer) => {
+        const assistantMsg = await ChatMessage.create({
+          project: project._id,
+          user: req.userId,
+          role: "assistant",
+          content: fullAnswer,
+          citedFiles,
+        });
+        res.write(`data: ${JSON.stringify({ type: "done", messageId: assistantMsg._id })}\n\n`);
+        res.end();
+      },
+      onError: (err) => {
+        res.write(`data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`);
+        res.end();
+      },
+    });
+  } catch (err) {
+    if (!res.headersSent) {
+      res.status(500).json({ message: "Failed to answer question", error: err.message });
+    } else {
+      res.write(`data: ${JSON.stringify({ type: "error", message: err.message })}\n\n`);
+      res.end();
+    }
+  }
+}
 
 export async function askQuestion(req, res) {
   try {

@@ -1,15 +1,25 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { FolderGit2, Plus, GitBranch, ArrowRight, Loader2, AlertCircle } from "lucide-react";
+import { 
+  FolderGit2, Plus, GitBranch, ArrowRight, Loader2, AlertCircle, Sparkles, 
+  Search, Trash2, CheckCircle2, Cpu, FileCode2, Clock, RefreshCw, ExternalLink 
+} from "lucide-react";
 import api from "../api/axios.js";
+import { useAuth } from "../context/AuthContext.jsx";
 import { cn } from "../lib/utils.js";
 
+const SAMPLE_REPOS = [
+  { name: "Vasanth2126/taskflow", url: "https://github.com/Vasanth2126/taskflow" },
+  { name: "expressjs/express", url: "https://github.com/expressjs/express" },
+  { name: "facebook/react", url: "https://github.com/facebook/react" }
+];
+
 const STATUS_META = {
-  pending: { color: "text-ghost border-line", dot: "bg-ghost" },
-  indexing: { color: "text-amber border-amber/40 bg-amber/5", dot: "bg-amber animate-pulse" },
-  ready: { color: "text-teal border-teal/40 bg-teal/5", dot: "bg-teal" },
-  failed: { color: "text-red-400 border-red-400/40 bg-red-400/5", dot: "bg-red-400" },
+  pending: { color: "text-ghost border-line bg-panel", dot: "bg-ghost", label: "Pending" },
+  indexing: { color: "text-amber border-amber/40 bg-amber/10", dot: "bg-amber animate-pulse", label: "Indexing Chunks" },
+  ready: { color: "text-teal border-teal/40 bg-teal/10", dot: "bg-teal shadow-[0_0_8px_rgba(20,184,166,0.8)]", label: "Ready to Query" },
+  failed: { color: "text-red-400 border-red-500/40 bg-red-500/10", dot: "bg-red-400", label: "Failed" },
 };
 
 function initialsFrom(name) {
@@ -21,18 +31,36 @@ function initialsFrom(name) {
     .join("");
 }
 
+function getTimeGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+const cardVariants = {
+  hidden: { opacity: 0, y: 20, scale: 0.96 },
+  visible: (i) => ({
+    opacity: 1, y: 0, scale: 1,
+    transition: { delay: i * 0.06, type: "spring", stiffness: 300, damping: 24 },
+  }),
+};
+
 export default function Dashboard() {
+  const { user } = useAuth();
   const [projects, setProjects] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   async function loadProjects() {
     try {
       const { data } = await api.get("/projects");
-      setProjects(data.projects);
+      setProjects(data.projects || []);
       setLoaded(true);
     } catch (e) {
       console.error(e);
@@ -47,7 +75,8 @@ export default function Dashboard() {
   }, []);
 
   async function handleAddRepo(e) {
-    e.preventDefault();
+    e?.preventDefault();
+    if (!repoUrl.trim()) return;
     setError("");
     setBusy(true);
     try {
@@ -56,181 +85,307 @@ export default function Dashboard() {
       setName("");
       loadProjects();
     } catch (err) {
-      setError(err.response?.data?.message || "Failed to add repository");
+      setError(err.response?.data?.message || "Failed to add repository.");
     } finally {
       setBusy(false);
     }
   }
 
+  async function handleDeleteProject(id, e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!window.confirm("Are you sure you want to delete this indexed project workspace?")) return;
+    setDeletingId(id);
+    try {
+      await api.delete(`/projects/${id}`);
+      loadProjects();
+    } catch (err) {
+      alert("Failed to delete project");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  const filteredProjects = projects.filter((p) =>
+    p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    p.sourceRef.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   const readyCount = projects.filter((p) => p.status === "ready").length;
+  const totalFiles = projects.reduce((sum, p) => sum + (p.fileCount || 0), 0);
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-24 min-h-screen">
-      <motion.div 
-        initial={{ opacity: 0, y: -20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex items-end justify-between flex-wrap gap-4 mb-3"
-      >
-        <h1 className="font-display text-4xl font-semibold tracking-tight">Your projects</h1>
-        {projects.length > 0 && (
-          <div className="flex items-center gap-2 bg-panel2 border border-line px-3 py-1.5 rounded-full">
-            <div className="w-2 h-2 rounded-full bg-teal shadow-[0_0_8px_rgba(20,184,166,0.8)]" />
-            <p className="font-mono text-xs text-paper">
-              {readyCount} / {projects.length} ready
-            </p>
-          </div>
-        )}
-      </motion.div>
-      <motion.p 
-        initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 }}
-        className="text-ghost mb-12 text-lg"
-      >
-        Index a GitHub repository, then chat with it once it's ready.
-      </motion.p>
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 pt-28 pb-24 min-h-screen relative selection:bg-accent/30 selection:text-white">
+      {/* Background Ambient Glows */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden -z-10">
+        <div className="absolute top-20 left-1/4 w-[500px] h-[500px] bg-accent/[0.04] rounded-full blur-[130px] animate-blob" />
+        <div className="absolute top-60 right-1/4 w-[450px] h-[450px] bg-teal/[0.04] rounded-full blur-[130px] animate-blob" style={{ animationDelay: "3s" }} />
+      </div>
 
-      <motion.form
-        initial={{ opacity: 0, y: 20 }}
+      {/* Header & Stats Banner */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10 border-b border-line/60 pb-8">
+        <div>
+          <div className="inline-flex items-center gap-2 text-xs font-mono text-teal bg-teal/10 border border-teal/20 rounded-full px-3 py-1 mb-3">
+            <Clock className="w-3.5 h-3.5" /> WORKSPACE OVERVIEW
+          </div>
+          <h1 className="font-display text-3xl sm:text-4xl font-bold tracking-tight text-paper">
+            {getTimeGreeting()}, <span className="bg-gradient-to-r from-accent via-teal to-amber bg-clip-text text-transparent">{user?.name || "Developer"}</span>
+          </h1>
+          <p className="text-ghost text-sm sm:text-base mt-1">
+            Index GitHub repositories to enable instant natural-language Q&A and auto-generated READMEs.
+          </p>
+        </div>
+
+        {/* Quick Stats Badges */}
+        <div className="flex items-center gap-3 shrink-0 flex-wrap">
+          <div className="bg-panel2/80 border border-line px-4 py-2.5 rounded-2xl backdrop-blur-md flex items-center gap-3 shadow-lg">
+            <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
+              <FolderGit2 className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-[10px] font-mono text-ghost/70 uppercase">Workspaces</p>
+              <p className="text-base font-bold font-display text-paper">{projects.length}</p>
+            </div>
+          </div>
+
+          <div className="bg-panel2/80 border border-line px-4 py-2.5 rounded-2xl backdrop-blur-md flex items-center gap-3 shadow-lg">
+            <div className="w-8 h-8 rounded-xl bg-teal/10 border border-teal/20 flex items-center justify-center text-teal">
+              <CheckCircle2 className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-[10px] font-mono text-ghost/70 uppercase">Ready Repos</p>
+              <p className="text-base font-bold font-display text-teal">{readyCount}</p>
+            </div>
+          </div>
+
+          <div className="bg-panel2/80 border border-line px-4 py-2.5 rounded-2xl backdrop-blur-md flex items-center gap-3 shadow-lg">
+            <div className="w-8 h-8 rounded-xl bg-amber/10 border border-amber/20 flex items-center justify-center text-amber">
+              <FileCode2 className="w-4 h-4" />
+            </div>
+            <div>
+              <p className="text-[10px] font-mono text-ghost/70 uppercase">Files Indexed</p>
+              <p className="text-base font-bold font-display text-amber">{totalFiles}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── Add Repo Section ─── */}
+      <motion.div
+        initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        onSubmit={handleAddRepo}
-        className="relative bg-panel/80 backdrop-blur-md border border-white/5 rounded-2xl p-2 mb-14 shadow-2xl overflow-hidden"
+        className="bg-panel2/90 border border-line rounded-3xl p-6 mb-12 shadow-[0_15px_40px_rgba(0,0,0,0.5)] backdrop-blur-2xl relative overflow-hidden"
       >
-        <div className="absolute inset-0 bg-gradient-to-r from-accent/10 via-transparent to-transparent opacity-50" />
-        <div className="relative grid md:grid-cols-[1fr_1fr_auto] gap-3">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display text-lg font-semibold text-paper flex items-center gap-2">
+            <Plus className="w-4 h-4 text-accent" /> Index New Repository
+          </h2>
+          <div className="hidden sm:flex items-center gap-2">
+            <span className="text-[11px] font-mono text-ghost/60">Quick Samples:</span>
+            {SAMPLE_REPOS.map((sr) => (
+              <button
+                key={sr.name}
+                type="button"
+                onClick={() => { setRepoUrl(sr.url); setName(sr.name); }}
+                className="text-[10px] font-mono text-accent bg-accent/10 hover:bg-accent/20 border border-accent/20 px-2 py-0.5 rounded transition"
+              >
+                {sr.name}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <form onSubmit={handleAddRepo} className="grid md:grid-cols-[1fr_1fr_auto] gap-3">
           <div className="relative">
-            <GitBranch className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-ghost" />
+            <GitBranch className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ghost/60" />
             <input
-              placeholder="https://github.com/owner/repo"
+              placeholder="https://github.com/owner/repository"
               required
               value={repoUrl}
               onChange={(e) => setRepoUrl(e.target.value)}
-              className="w-full bg-panel2/50 border border-line rounded-xl pl-10 pr-4 py-3 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 font-mono text-sm transition-all placeholder:text-ghost/50"
+              className="w-full bg-ink/70 border border-line rounded-xl pl-10 pr-4 py-3 focus:outline-none focus:border-accent/60 focus:ring-1 focus:ring-accent/30 font-mono text-sm text-paper placeholder:text-ghost/40 transition-all"
             />
           </div>
+
           <div className="relative">
-            <FolderGit2 className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-ghost" />
+            <FolderGit2 className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ghost/60" />
             <input
-              placeholder="Project name (optional)"
+              placeholder="Custom project title (optional)"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full bg-panel2/50 border border-line rounded-xl pl-10 pr-4 py-3 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50 text-sm transition-all placeholder:text-ghost/50"
+              className="w-full bg-ink/70 border border-line rounded-xl pl-10 pr-4 py-3 focus:outline-none focus:border-accent/60 focus:ring-1 focus:ring-accent/30 text-sm text-paper placeholder:text-ghost/40 transition-all"
             />
           </div>
-          <button
+
+          <motion.button
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             type="submit"
-            disabled={busy}
-            className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-paper text-ink font-semibold hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:scale-100 whitespace-nowrap shadow-[0_0_20px_rgba(255,255,255,0.1)]"
+            disabled={busy || !repoUrl.trim()}
+            className="flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-accent via-indigo-500 to-accentHover text-white font-bold text-sm transition-all disabled:opacity-50 shadow-[0_0_20px_rgba(129,140,248,0.3)] whitespace-nowrap"
           >
             {busy ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> Adding...</>
+              <><Loader2 className="w-4 h-4 animate-spin" /> Indexing Tree...</>
             ) : (
-              <><Plus className="w-4 h-4" /> Index repo</>
+              <><Sparkles className="w-4 h-4 text-amber" /> Index Repository</>
             )}
-          </button>
-        </div>
-      </motion.form>
-      
-      <AnimatePresence>
-        {error && (
-          <motion.div 
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: 'auto' }}
-            exit={{ opacity: 0, height: 0 }}
-            className="mb-8"
-          >
-            <div className="flex items-center gap-2 text-sm text-red-400 bg-red-400/10 border border-red-400/20 p-4 rounded-xl">
-              <AlertCircle className="w-4 h-4" />
-              {error}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          </motion.button>
+        </form>
 
+        <AnimatePresence>
+          {error && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              className="mt-4"
+            >
+              <div className="flex items-center gap-2 text-xs text-red-400 bg-red-500/10 border border-red-500/25 p-3 rounded-xl">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                {error}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+
+      {/* ─── Search & Filter Bar ─── */}
+      <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
+        <div className="relative flex-1 max-w-md">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-ghost/60" />
+          <input
+            type="text"
+            placeholder="Search workspaces by title or repository..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full bg-panel2/60 border border-line rounded-xl pl-10 pr-4 py-2.5 text-xs text-paper placeholder:text-ghost/50 focus:outline-none focus:border-accent/40 font-medium"
+          />
+        </div>
+        <button
+          onClick={loadProjects}
+          className="p-2.5 rounded-xl bg-panel2 border border-line text-ghost hover:text-paper transition flex items-center gap-1.5 text-xs font-mono"
+        >
+          <RefreshCw className="w-3.5 h-3.5" /> Refresh
+        </button>
+      </div>
+
+      {/* ─── Projects Grid ─── */}
       {!loaded ? (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[1, 2, 3].map((i) => (
-            <div key={i} className="bg-panel/50 border border-line rounded-2xl p-6 h-40 animate-pulse relative overflow-hidden">
-               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full animate-shimmer" />
+            <div key={i} className="bg-panel2/80 border border-line rounded-2xl p-6 h-48 animate-pulse relative overflow-hidden">
+              <div className="w-12 h-12 rounded-xl bg-ink/60 mb-4" />
+              <div className="h-4 w-3/4 rounded bg-ink/60 mb-3" />
+              <div className="h-3 w-1/2 rounded bg-ink/60" />
             </div>
           ))}
         </div>
-      ) : projects.length === 0 ? (
-        <motion.div 
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-          className="flex flex-col items-center justify-center py-20 border-2 border-dashed border-line rounded-3xl bg-panel/30"
+
+      ) : filteredProjects.length === 0 ? (
+        <motion.div
+          initial={{ opacity: 0, scale: 0.96 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="flex flex-col items-center justify-center py-20 border border-dashed border-line/80 rounded-3xl bg-panel2/30 backdrop-blur-sm text-center"
         >
-          <div className="w-16 h-16 rounded-2xl bg-panel2 border border-line flex items-center justify-center mb-4">
-            <FolderGit2 className="w-8 h-8 text-ghost" />
+          <div className="w-16 h-16 rounded-2xl bg-accent/10 border border-accent/20 flex items-center justify-center mb-4 text-accent">
+            <FolderGit2 className="w-8 h-8" />
           </div>
-          <p className="text-paper font-medium text-lg mb-1">No projects yet</p>
-          <p className="text-ghost text-sm">Add a repository above to get started.</p>
+          <p className="font-display font-bold text-lg text-paper mb-1">
+            {searchQuery ? "No matching workspaces found" : "No repositories indexed yet"}
+          </p>
+          <p className="text-ghost text-xs max-w-md mb-6">
+            {searchQuery ? "Try clearing your search query above." : "Paste a public GitHub repository URL above to create your first AI workspace."}
+          </p>
         </motion.div>
+
       ) : (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {projects.map((p, index) => {
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredProjects.map((p, index) => {
             const meta = STATUS_META[p.status] || STATUS_META.pending;
             const isReady = p.status === "ready";
-            
+
             return (
               <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                transition={{ delay: index * 0.05 }}
+                variants={cardVariants}
+                initial="hidden"
+                animate="visible"
+                custom={index}
                 key={p._id}
               >
                 <Link
                   to={isReady ? `/projects/${p._id}` : "#"}
                   className={cn(
-                    "group block bg-panel/60 backdrop-blur border border-line rounded-2xl p-6 h-full transition-all relative overflow-hidden",
-                    isReady ? "hover:border-accent/50 hover:bg-panel hover:shadow-[0_8px_30px_rgba(99,102,241,0.1)] hover:-translate-y-1" : "cursor-default opacity-90"
+                    "group block bg-panel2/90 border border-line rounded-2xl p-6 h-full transition-all duration-300 relative overflow-hidden backdrop-blur-xl flex flex-col justify-between shadow-lg",
+                    isReady
+                      ? "hover:border-accent/50 hover:shadow-[0_12px_45px_rgba(129,140,248,0.15)] hover:-translate-y-1.5"
+                      : "cursor-default opacity-85"
                   )}
                 >
-                  <div className="flex items-start gap-4 mb-4">
-                    <div className="w-12 h-12 rounded-xl bg-panel2 border border-line flex items-center justify-center text-sm font-display font-bold text-accent shrink-0 shadow-inner group-hover:scale-110 transition-transform">
-                      {initialsFrom(p.name)}
+                  {/* Card Background Subtle Shimmer */}
+                  {isReady && (
+                    <div className="absolute inset-0 bg-gradient-to-br from-accent/[0.05] via-transparent to-teal/[0.04] opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                  )}
+
+                  <div>
+                    <div className="flex items-start justify-between gap-3 mb-4">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={cn(
+                          "w-12 h-12 rounded-xl bg-ink border border-line flex items-center justify-center font-display font-bold text-sm shrink-0 transition-transform group-hover:scale-105",
+                          isReady ? "text-accent border-accent/30 shadow-[0_0_12px_rgba(129,140,248,0.2)]" : "text-ghost"
+                        )}>
+                          {initialsFrom(p.name)}
+                        </div>
+                        <div className="min-w-0">
+                          <h3 className="font-display text-base font-bold text-paper truncate group-hover:text-white transition-colors">
+                            {p.name}
+                          </h3>
+                          <p className="text-[11px] font-mono text-ghost/70 truncate flex items-center gap-1.5 mt-0.5">
+                            <GitBranch className="w-3 h-3 text-accent shrink-0" /> {p.sourceRef}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={(e) => handleDeleteProject(p._id, e)}
+                        disabled={deletingId === p._id}
+                        title="Delete project"
+                        className="text-ghost/40 hover:text-red-400 p-1.5 rounded-lg hover:bg-red-500/10 transition shrink-0"
+                      >
+                        {deletingId === p._id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      </button>
                     </div>
-                    <div className="min-w-0 flex-1 pt-1">
-                      <h3 className="font-display text-lg font-medium truncate text-paper mb-1">{p.name}</h3>
-                      <p className="text-ghost text-xs font-mono truncate flex items-center gap-1.5">
-                        <GitBranch className="w-3.5 h-3.5" /> {p.sourceRef}
-                      </p>
-                    </div>
-                  </div>
-                  
-                  <div className="mt-6 flex flex-col gap-3">
-                    <div className="flex items-center justify-between">
-                      <span className={cn("inline-flex items-center gap-1.5 text-xs font-mono border rounded-full px-2.5 py-1", meta.color)}>
-                        <span className={cn("w-1.5 h-1.5 rounded-full shadow-[0_0_5px_currentColor]", meta.dot)} />
-                        {p.status}
+
+                    <div className="flex items-center justify-between mt-4">
+                      <span className={cn("inline-flex items-center gap-1.5 text-[10px] font-mono border rounded-full px-2.5 py-1 font-semibold", meta.color)}>
+                        <span className={cn("w-1.5 h-1.5 rounded-full", meta.dot)} />
+                        {meta.label}
                       </span>
+
                       {isReady && (
-                        <span className="text-xs font-mono text-ghost bg-panel2 px-2 py-1 rounded border border-line">
-                          {p.fileCount} files
+                        <span className="text-[10px] font-mono text-ghost/70 bg-ink/60 px-2.5 py-1 rounded-full border border-line flex items-center gap-1">
+                          <FileCode2 className="w-3 h-3 text-teal" /> {p.fileCount} files
                         </span>
                       )}
                     </div>
-                    
-                    {p.status === "failed" && p.errorMessage && (
-                      <p className="text-red-400 text-xs bg-red-400/10 p-2 rounded-lg border border-red-400/20">{p.errorMessage}</p>
-                    )}
-                    
+
                     {p.status === "indexing" && (
-                      <div className="mt-2">
-                        <div className="flex justify-between text-[10px] font-mono text-ghost mb-1">
-                          <span>Indexing chunks...</span>
-                        </div>
-                        <div className="h-1.5 bg-panel2 rounded-full overflow-hidden">
-                          <div className="h-full w-2/3 bg-amber rounded-full animate-[pulse_1.5s_ease-in-out_infinite] shadow-[0_0_10px_rgba(245,158,11,0.5)]" />
+                      <div className="mt-3">
+                        <div className="h-1.5 bg-ink rounded-full overflow-hidden">
+                          <motion.div
+                            initial={{ width: "10%" }}
+                            animate={{ width: "80%" }}
+                            transition={{ duration: 3, repeat: Infinity, repeatType: "reverse", ease: "easeInOut" }}
+                            className="h-full bg-gradient-to-r from-amber to-amber/60 rounded-full shadow-[0_0_10px_rgba(245,158,11,0.5)]"
+                          />
                         </div>
                       </div>
                     )}
                   </div>
-                  
+
                   {isReady && (
-                    <div className="absolute right-6 bottom-6 opacity-0 group-hover:opacity-100 transition-all translate-x-2 group-hover:translate-x-0">
-                      <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent">
-                        <ArrowRight className="w-4 h-4" />
-                      </div>
+                    <div className="mt-6 pt-4 border-t border-line/60 flex items-center justify-between text-xs font-semibold text-accent group-hover:text-white transition-colors">
+                      <span>Open Vector Chat Workspace</span>
+                      <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                     </div>
                   )}
                 </Link>
