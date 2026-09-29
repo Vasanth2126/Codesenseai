@@ -1,0 +1,33 @@
+# Environments & Dependencies
+venv/
+.venv/
+env/
+**/venv/
+**/node_modules/
+node_modules/
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Environment secrets
+.env
+.env.local
+*.env
+
+# Database & runtime data
+data/
+**/data/
+*.wt
+*.lock
+*.turtle
+*.bson
+
+# OS Files
+.DS_Store
+Thumbs.db

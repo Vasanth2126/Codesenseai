@@ -3,6 +3,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import mongoose from "mongoose";
 import { connectDB } from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
 import projectRoutes from "./routes/projectRoutes.js";
@@ -12,6 +13,9 @@ dotenv.config();
 
 const app = express();
 
+// Trust reverse proxy (required for Render / rate limiting)
+app.set("trust proxy", 1);
+
 // Security headers
 app.use(
   helmet({
@@ -19,38 +23,76 @@ app.use(
   })
 );
 
-// Rate limiter: max 100 requests per 15 minutes per IP
+// Rate limiter: max 150 requests per 15 minutes per IP
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 150,
+  standardHeaders: true,
+  legacyHeaders: false,
   message: { message: "Too many requests from this IP, please try again later." },
 });
 app.use("/api/", apiLimiter);
 
-// Dynamic CORS configuration
-const allowedOrigins = [
-  process.env.CLIENT_ORIGIN || "http://localhost:5173",
+// Dynamic CORS configuration (supports comma-separated origins, wildcards, and preview URLs)
+const configuredOrigins = process.env.CLIENT_ORIGIN
+  ? process.env.CLIENT_ORIGIN.split(",").map((o) => o.trim())
+  : [];
+
+const defaultOrigins = [
+  "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5175",
+  "http://localhost:3000",
 ];
+
+const allowedOrigins = [...new Set([...configuredOrigins, ...defaultOrigins])];
 
 app.use(
   cors({
     origin: (origin, cb) => {
-      if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== "production") {
-        cb(null, true);
-      } else {
-        cb(null, true); // Allow configured deployments
+      // Allow requests with no origin (like mobile apps, curl, server-to-server)
+      if (!origin) return cb(null, true);
+      
+      // If configured origin exists or in development mode
+      if (
+        allowedOrigins.includes(origin) ||
+        allowedOrigins.includes("*") ||
+        process.env.NODE_ENV !== "production" ||
+        origin.endsWith(".vercel.app") ||
+        origin.endsWith(".onrender.com") ||
+        origin.endsWith(".netlify.app")
+      ) {
+        return cb(null, true);
       }
+      return cb(null, true); // Permissive fallback to prevent deployment CORS blocks
     },
     credentials: true,
   })
 );
 
-app.use(express.json({ limit: "5mb" }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-app.get("/api/health", (req, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
+// Root route for Render service health check & browser preview
+app.get("/", (req, res) => {
+  res.json({
+    status: "ok",
+    service: "CodeSense AI API",
+    database: mongoose.connection.readyState === 1 ? "connected" : "connecting/disconnected",
+    timestamp: new Date().toISOString(),
+  });
+});
 
+app.get("/health", (req, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
+app.get("/api/health", (req, res) =>
+  res.json({
+    status: "ok",
+    database: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+    timestamp: new Date().toISOString(),
+  })
+);
+
+// API routes
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/chat", chatRoutes);
@@ -58,12 +100,20 @@ app.use("/api/chat", chatRoutes);
 // Central error handler
 app.use((err, req, res, next) => {
   console.error("[ServerError]", err);
-  res.status(500).json({ message: "Unexpected server error", error: process.env.NODE_ENV === "development" ? err.message : undefined });
+  res.status(500).json({
+    message: "Unexpected server error",
+    error: process.env.NODE_ENV === "development" ? err.message : undefined,
+  });
 });
 
 const PORT = process.env.PORT || 5000;
+const HOST = "0.0.0.0";
 
-connectDB().then(() => {
-  app.listen(PORT, () => console.log(`CodeSense AI API running on port ${PORT}`));
+// Start server immediately so Render health checks pass without waiting for DB retries
+app.listen(PORT, HOST, () => {
+  console.log(`CodeSense AI API running on http://${HOST}:${PORT}`);
+  // Connect to database in the background
+  connectDB();
 });
+
 

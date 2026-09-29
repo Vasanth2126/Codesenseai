@@ -1,16 +1,21 @@
-# Lightweight Node.js Linux Container for Server Deployment
-FROM node:18-alpine
+# Production Node.js container for CodeSense AI
+FROM node:20-slim
 
 WORKDIR /app
 
+# Install curl for health checks if needed
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
 COPY package*.json ./
-RUN npm ci --only=production
+
+# Install dependencies cleanly
+RUN npm install --omit=dev
 
 COPY . .
 
+ENV NODE_ENV=production
+
 EXPOSE 5000
 
-ENV NODE_ENV=production
-ENV PORT=5000
-
 CMD ["node", "server.js"]
+

@@ -4,7 +4,17 @@ import ChatMessage from "../models/ChatMessage.js";
 import { embedText, cosineSimilarity, askAI, streamAI } from "../utils/llm.js";
 
 const TOP_K = 6;
-const README_SAMPLE_SIZE = 25; // chunks sampled across the repo for the README prompt
+const README_SAMPLE_SIZE = 8; // chunks sampled across the repo for the README prompt
+
+// Gives the model the real list of indexed files, so structure questions are not guessed.
+function buildFileListChunk(allChunks) {
+  const paths = [...new Set(allChunks.map((c) => c.filePath))].sort();
+  if (paths.length === 0) return null;
+  return {
+    filePath: "PROJECT_FILE_LIST",
+    content: "Files in this project (indexed files only):\n" + paths.slice(0, 300).join("\n"),
+  };
+}
 
 export async function streamQuestion(req, res) {
   const { id: projectId } = req.params;
@@ -54,7 +64,10 @@ export async function streamQuestion(req, res) {
 
     await streamAI({
       question,
-      contextChunks: ranked.map((c) => ({ filePath: c.filePath, content: c.content })),
+      contextChunks: [
+        buildFileListChunk(allChunks),
+        ...ranked.map((c) => ({ filePath: c.filePath, content: c.content })),
+      ].filter(Boolean),
       onToken: (token) => {
         res.write(`data: ${JSON.stringify({ type: "token", token })}\n\n`);
       },
@@ -117,7 +130,10 @@ export async function askQuestion(req, res) {
 
     const answer = await askAI({
       question,
-      contextChunks: ranked.map((c) => ({ filePath: c.filePath, content: c.content })),
+      contextChunks: [
+        buildFileListChunk(allChunks),
+        ...ranked.map((c) => ({ filePath: c.filePath, content: c.content })),
+      ].filter(Boolean),
     });
 
     const citedFiles = [...new Set(ranked.map((c) => c.filePath))];

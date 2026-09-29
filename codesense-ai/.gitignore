@@ -2,3 +2,19 @@ node_modules/
 .env
 dist/
 *.log
+
+# Python virtual environment
+ai-service/venv/
+
+# Fine-tuned model / Hugging Face cache
+ai-service/codesenseai_finetuned/
+ai-service/**/.cache/
+
+# Model weight files
+*.safetensors
+*.bin
+*.pt
+*.pth
+
+__pycache__/
+*.pyc

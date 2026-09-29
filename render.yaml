@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: codesense-ai-server
+    runtime: node
+    rootDir: codesense-ai/server
+    buildCommand: npm install
+    startCommand: node server.js
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GROQ_API_KEY
+        sync: false
+      - key: CLIENT_ORIGIN
+        value: "*"
