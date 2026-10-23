@@ -1,7 +1,12 @@
+import os
+import json
+from threading import Thread
 import torch
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, TextIteratorStreamer
 from peft import PeftModel
 
 # --------------------------------------------------
@@ -9,7 +14,7 @@ from peft import PeftModel
 # --------------------------------------------------
 
 BASE_MODEL = "Qwen/Qwen2.5-Coder-1.5B-Instruct"
-ADAPTER_PATH = "./codesenseai_finetuned"
+ADAPTER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "codesenseai_finetuned")
 
 # --------------------------------------------------
 # FastAPI
@@ -20,6 +25,14 @@ app = FastAPI(
     version="1.0.0"
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # --------------------------------------------------
 # Request / Response models
 # --------------------------------------------------
@@ -27,6 +40,7 @@ app = FastAPI(
 class GenerateRequest(BaseModel):
     question: str
     context: str = ""
+    stream: bool = False
 
 
 class GenerateResponse(BaseModel):
@@ -104,13 +118,10 @@ def health():
 # Generation endpoint
 # --------------------------------------------------
 
-@app.post("/generate", response_model=GenerateResponse)
+@app.post("/generate")
 def generate(request: GenerateRequest):
-
     try:
-
         if request.context.strip():
-
             prompt = f"""<|im_start|>system
 You are CodeSense AI, an AI coding assistant.
 
@@ -126,9 +137,7 @@ Repository context:
 
 <|im_start|>assistant
 """
-
         else:
-
             prompt = f"""<|im_start|>system
 You are CodeSense AI, an AI coding assistant.
 <|im_end|>
@@ -145,41 +154,56 @@ You are CodeSense AI, an AI coding assistant.
             return_tensors="pt"
         )
 
-        # Put input tensors on the same device used by the model.
         inputs = {
             key: value.to(model.device)
             for key, value in inputs.items()
         }
 
-        with torch.no_grad():
+        # Real-time token streaming if requested
+        if request.stream:
+            streamer = TextIteratorStreamer(tokenizer, skip_prompt=True, skip_special_tokens=True)
+            generation_kwargs = dict(
+                **inputs,
+                streamer=streamer,
+                max_new_tokens=512,
+                temperature=0.2,
+                do_sample=True,
+                top_p=0.9,
+                repetition_penalty=1.05,
+            )
+            thread = Thread(target=model.generate, kwargs=generation_kwargs)
+            thread.start()
 
+            def token_stream():
+                for token in streamer:
+                    yield f"data: {json.dumps({'token': token})}\n\n"
+                yield "data: [DONE]\n\n"
+
+            return StreamingResponse(token_stream(), media_type="text/event-stream")
+
+        with torch.no_grad():
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=300,
+                max_new_tokens=512,
                 temperature=0.2,
                 do_sample=True,
                 top_p=0.9,
                 repetition_penalty=1.05,
             )
 
-        generated_tokens = outputs[
-            0
-        ][
-            inputs["input_ids"].shape[1]:
-        ]
+        generated_tokens = outputs[0][inputs["input_ids"].shape[1]:]
+        answer = tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
 
-        answer = tokenizer.decode(
-            generated_tokens,
-            skip_special_tokens=True
-        ).strip()
-
-        return GenerateResponse(
-            answer=answer
-        )
+        return GenerateResponse(answer=answer)
 
     except Exception as e:
-
         raise HTTPException(
             status_code=500,
             detail=str(e)
         )
+
+
+if __name__ == "__main__":
+    import uvicorn
+    print("\nStarting CodeSense AI server on http://127.0.0.1:8000 ...")
+    uvicorn.run(app, host="0.0.0.0", port=8000)

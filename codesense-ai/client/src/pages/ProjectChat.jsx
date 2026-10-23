@@ -267,7 +267,7 @@ export default function ProjectChat() {
               </div>
               <h2 className="text-2xl font-display font-bold text-paper mb-2">Query {project?.name || "Codebase"}</h2>
               <p className="text-ghost text-sm mb-8 max-w-md leading-relaxed">
-                Ask any technical question. Answers are synthesized using Groq LLM with exact source file citations.
+                Ask any technical question. Answers are synthesized using your fine-tuned model with exact source file citations.
               </p>
               
               <div className="grid sm:grid-cols-2 gap-3 max-w-xl w-full">
@@ -374,7 +374,7 @@ export default function ProjectChat() {
             </motion.button>
           </form>
           <p className="text-center text-[10px] font-mono text-ghost/50 mt-2">
-            CodeSense AI · Powered by Groq Llama 3 & Local Vector Similarity
+            CodeSense AI · Powered by Fine-Tuned Qwen-Coder & Local Vector Similarity
           </p>
         </div>
       </div>
