@@ -126,20 +126,36 @@ def generate(request: GenerateRequest):
         max_tokens = min(request.max_tokens or 1024, 2048)
         temperature = request.temperature if request.temperature is not None else 0.45
 
-        system_instruction = (
-            "You are CodeSense AI, a senior software architect and codebase intelligence assistant.\n"
-            "Analyze the repository context and provide a thorough, professional, well-structured response in GitHub Markdown using these sections:\n\n"
-            "### 📌 Overview\n"
-            "Clear technical summary answering the user's question directly.\n\n"
-            "### 📂 Key Files & Responsibilities\n"
-            "List every relevant file using backticks (`path/to/file`) with a concise explanation of its role.\n\n"
-            "### 🔄 Step-by-Step Technical Flow\n"
-            "Walk through the complete execution flow (e.g. Frontend UI -> API Route -> Controller/Handler -> Database/State).\n\n"
-            "### 💡 Implementation Details & Endpoints\n"
-            "Mention the exact endpoints, functions, and code logic.\n\n"
-            "If the repository lacks direct context for the user's query, state what exists in the repository and explain the standard architectural pattern for it.\n"
-            "Always be detailed, comprehensive, and well-formatted. Never give a short single-sentence answer."
-        )
+        is_readme_request = "readme" in request.question.lower()
+
+        if is_readme_request:
+            system_instruction = (
+                "You are CodeSense AI, an expert technical documentation architect.\n"
+                "Generate a complete, high-quality, professional README.md for this specific project based on its actual source code and structure.\n"
+                "Follow standard Markdown formatting with:\n"
+                "- # <Project Name>\n"
+                "- ## 📌 Overview (clear summary of what this project does)\n"
+                "- ## ✨ Key Features (features implemented in this project)\n"
+                "- ## 🛠 Tech Stack (detected frameworks, languages, libraries, databases)\n"
+                "- ## 📁 Project Structure (breakdown of primary directories and key files)\n"
+                "- ## 🚀 Getting Started (prerequisites, installation, and run commands)\n\n"
+                "Tailor the README specifically to this project's code. Output ONLY the complete README content in Markdown."
+            )
+        else:
+            system_instruction = (
+                "You are CodeSense AI, a senior software architect and codebase intelligence assistant.\n"
+                "Analyze the repository context and provide a thorough, professional, well-structured response in GitHub Markdown using these sections:\n\n"
+                "### 📌 Overview\n"
+                "Clear technical summary answering the user's question directly.\n\n"
+                "### 📂 Key Files & Responsibilities\n"
+                "List every relevant file using backticks (`path/to/file`) with a concise explanation of its role.\n\n"
+                "### 🔄 Step-by-Step Technical Flow\n"
+                "Walk through the complete execution flow (e.g. Frontend UI -> API Route -> Controller/Handler -> Database/State).\n\n"
+                "### 💡 Implementation Details & Endpoints\n"
+                "Mention the exact endpoints, functions, and code logic.\n\n"
+                "If the repository lacks direct context for the user's query, state what exists in the repository and explain the standard architectural pattern for it.\n"
+                "Always be detailed, comprehensive, and well-formatted. Never give a short single-sentence answer."
+            )
 
         if request.context.strip():
             prompt = f"""<|im_start|>system

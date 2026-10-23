@@ -180,9 +180,72 @@ export async function askQuestion(req, res) {
   }
 }
 
+function inferRepoMetadata(fileList = [], chunks = []) {
+  const isPython = fileList.some((f) => f.endsWith(".py") || f.includes("requirements.txt"));
+  const isNode = fileList.some((f) => f.endsWith(".js") || f.endsWith(".jsx") || f.endsWith(".ts") || f.endsWith(".tsx") || f.includes("package.json"));
+  const isGo = fileList.some((f) => f.endsWith(".go") || f.includes("go.mod"));
+  const isRust = fileList.some((f) => f.endsWith(".rs") || f.includes("Cargo.toml"));
+  const isJava = fileList.some((f) => f.endsWith(".java") || f.includes("pom.xml") || f.includes("build.gradle"));
+
+  const tech = [];
+  let installCmd = "npm install";
+  let runCmd = "npm run dev";
+
+  if (isNode) {
+    const hasReact = chunks.some((c) => (c.content || "").toLowerCase().includes("react") || (c.content || "").includes("useState"));
+    const hasExpress = chunks.some((c) => (c.content || "").toLowerCase().includes("express"));
+    if (hasReact) tech.push("React");
+    if (hasExpress) tech.push("Express / Node.js");
+    tech.push("JavaScript / TypeScript");
+  }
+
+  if (isPython) {
+    tech.push("Python");
+    const contentStr = chunks.map((c) => c.content || "").join(" ").toLowerCase();
+    if (contentStr.includes("fastapi")) tech.push("FastAPI");
+    if (contentStr.includes("flask")) tech.push("Flask");
+    if (contentStr.includes("django")) tech.push("Django");
+    installCmd = "pip install -r requirements.txt";
+    runCmd = "python main.py";
+  }
+
+  if (isGo) {
+    tech.push("Go (Golang)");
+    installCmd = "go mod download";
+    runCmd = "go run main.go";
+  }
+
+  if (isRust) {
+    tech.push("Rust");
+    installCmd = "cargo build";
+    runCmd = "cargo run";
+  }
+
+  if (isJava) {
+    tech.push("Java");
+    installCmd = "mvn clean install";
+    runCmd = "mvn spring-boot:run";
+  }
+
+  return {
+    techStack: tech.length > 0 ? tech.join(", ") : "Modern Multi-Tier Stack",
+    installCmd,
+    runCmd,
+  };
+}
+
 export async function generateReadme(req, res) {
   try {
     const { id: projectId } = req.params;
+
+    let project = null;
+    try {
+      project = await Project.findOne({ _id: projectId });
+    } catch (e) {}
+    if (!project) {
+      project = inMemoryProjects.get(projectId) || inMemoryProjects.get("proj-codesense-01") || { name: "Repository", sourceRef: "" };
+    }
+
     let allChunks = [];
     try {
       allChunks = await Document.find({ project: projectId });
@@ -191,85 +254,119 @@ export async function generateReadme(req, res) {
       allChunks = inMemoryDocuments.get(projectId) || inMemoryDocuments.get("proj-codesense-01") || [];
     }
 
-    const seenFiles = new Set();
+    const repoName = project.name || "Repository";
+    const fileList = [...new Set(allChunks.map((c) => c.filePath))];
+
+    // Priority sampling: manifests, entry points, key components
+    const priorityFiles = [
+      "package.json", "requirements.txt", "cargo.toml", "go.mod", "pom.xml",
+      "server.js", "app.py", "main.py", "index.js", "main.go", "app.jsx", "app.js"
+    ];
+
     const sampled = [];
+    const seenFiles = new Set();
+
+    for (const chunk of allChunks) {
+      if (seenFiles.has(chunk.filePath)) continue;
+      const lowerPath = chunk.filePath.toLowerCase();
+      if (priorityFiles.some((p) => lowerPath.endsWith(p))) {
+        seenFiles.add(chunk.filePath);
+        sampled.push(chunk);
+      }
+    }
+
     for (const chunk of allChunks) {
       if (seenFiles.has(chunk.filePath)) continue;
       seenFiles.add(chunk.filePath);
       sampled.push(chunk);
-      if (sampled.length >= README_SAMPLE_SIZE) break;
+      if (sampled.length >= 8) break;
     }
 
-    const fileList = [...seenFiles];
+    const meta = inferRepoMetadata(fileList, allChunks);
 
-    let aiSummary = "";
+    let aiReadme = "";
     try {
+      const prompt =
+        `Write a complete, professional, production-grade README.md for the repository "${repoName}". ` +
+        `Repository URL: ${project.sourceRef || ""}\n` +
+        `Files in this repository:\n${fileList.slice(0, 30).join("\n")}\n\n` +
+        `Using the provided repository files and structure, generate a comprehensive README in Markdown with:\n` +
+        `# ${repoName}\n` +
+        `## 📌 Overview (comprehensive explanation of what THIS specific project does based on its source code)\n` +
+        `## ✨ Key Features (features implemented in this project)\n` +
+        `## 🛠 Tech Stack (inferred directly from the dependencies and files: ${meta.techStack})\n` +
+        `## 📁 Project Structure (explain the main files and directories)\n` +
+        `## 🚀 Getting Started (prerequisites, setup commands: \`${meta.installCmd}\`, and run commands: \`${meta.runCmd}\`)\n\n` +
+        `Output ONLY the final README Markdown content tailored specifically to "${repoName}".`;
+
       const aiPromise = askAI({
-        question:
-          "Provide a concise 2-paragraph technical architecture summary for this repository based on the files provided. Highlight key patterns and capabilities.",
+        question: prompt,
         contextChunks: sampled.map((c) => ({ filePath: c.filePath, content: c.content })),
+        max_tokens: 1536,
       });
-      // Safety timeout: 7000ms so Vercel/Cloudflare never cancels before completion
+
+      // Allow model ample generation time with safe fallback
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout")), 7000)
+        setTimeout(() => reject(new Error("Timeout")), 18000)
       );
-      aiSummary = await Promise.race([aiPromise, timeoutPromise]);
+
+      aiReadme = await Promise.race([aiPromise, timeoutPromise]);
     } catch (e) {
-      aiSummary =
-        "An AI-powered codebase intelligence platform that indexes code repositories into dense vector embeddings for semantic search, instant Q&A with inline citations, and automated architectural analysis.";
+      console.warn("[generateReadme] AI generation fallback:", e.message);
     }
 
-    const readme = `# ${projectId === "proj-codesense-01" ? "CodeSense AI" : "Project Architecture Specification"}
+    // If AI successfully generated a repository-specific README, return it!
+    if (aiReadme && aiReadme.trim().startsWith("#")) {
+      return res.json({ readme: aiReadme.trim() });
+    }
 
-> High-performance codebase intelligence and developer assistant powered by fine-tuned local models and vector RAG retrieval.
+    // Dynamic, repository-tailored fallback (never hardcoded to CodeSense AI)
+    const fallbackReadme = `# ${repoName}
+
+> Technical specification and repository architecture indexed by **CodeSense AI**.
 
 ---
 
-## ⚡ Overview
-${aiSummary}
-
----
-
-## 📁 Repository Structure & Key Components
-${fileList.map((f) => `- \`${f}\``).join("\n")}
+## 📌 Overview
+This repository contains **${fileList.length} indexed source files** representing the core architecture and logic of **${repoName}**.
 
 ---
 
 ## 🛠 Tech Stack
-- **Frontend:** React, Vite, TailwindCSS, Framer Motion, Lucide Icons
-- **Backend:** Node.js, Express, MongoDB, Server-Sent Events (SSE)
-- **AI Engine:** Fine-Tuned Qwen2.5-Coder LoRA Inference via FastAPI
-- **Vector Retrieval:** In-memory cosine similarity & HuggingFace Transformers.js
+- **Primary Technologies:** ${meta.techStack}
+- **Total Indexed Components:** ${fileList.length} files
+
+---
+
+## 📁 Repository Structure
+${fileList.length > 0 ? fileList.map((f) => `- \`${f}\``).join("\n") : "- *No files indexed yet*"}
 
 ---
 
 ## 🚀 Getting Started
 
-### 1. Start the Fine-Tuned AI Service
+### Prerequisites
+Ensure your local environment has the required runtime installed for **${meta.techStack}**.
+
+### Installation
 \`\`\`bash
-cd codesense-ai/ai-service
-.\\venv\\Scripts\\python.exe main.py
+git clone ${project.sourceRef || "https://github.com/" + repoName}
+cd ${repoName.split("/").pop() || "project"}
+${meta.installCmd}
 \`\`\`
 
-### 2. Start the Backend API Server
+### Running the Application
 \`\`\`bash
-cd codesense-ai/server
-npm run dev
-\`\`\`
-
-### 3. Start the Frontend Application
-\`\`\`bash
-cd codesense-ai/client
-npm run dev
+${meta.runCmd}
 \`\`\`
 
 ---
-*Generated automatically by **CodeSense AI**.*
+*Generated automatically by **CodeSense AI** for \`${repoName}\`.*
 `;
 
-    res.json({ readme });
+    return res.json({ readme: fallbackReadme });
   } catch (err) {
-    res.json({ readme: "# CodeSense AI Workspace\n\nRepository vector indexed successfully." });
+    res.json({ readme: "# Repository Architecture\n\nRepository vector indexed successfully." });
   }
 }
 
