@@ -1,6 +1,9 @@
 import axios from "axios";
 
-let rawURL = import.meta.env.VITE_API_URL || "";
+let rawURL = import.meta.env.VITE_API_URL || "https://codesenseai-rho.vercel.app";
+if (rawURL.includes("ge4rlupr1") || !rawURL.trim()) {
+  rawURL = "https://codesenseai-rho.vercel.app";
+}
 if (rawURL && !rawURL.startsWith("http://") && !rawURL.startsWith("https://")) {
   rawURL = `https://${rawURL}`;
 }
