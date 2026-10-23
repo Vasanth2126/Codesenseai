@@ -28,6 +28,8 @@ data/
 *.turtle
 *.bson
 
-# OS Files
+# OS & Binary Files
 .DS_Store
 Thumbs.db
+*.exe
+

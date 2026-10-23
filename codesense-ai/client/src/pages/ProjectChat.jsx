@@ -93,7 +93,11 @@ export default function ProjectChat() {
 
     try {
       const token = localStorage.getItem("codesense_token") || localStorage.getItem("token");
-      const baseURL = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/$/, "") : "";
+      let rawURL = import.meta.env.VITE_API_URL || "";
+      if (rawURL && !rawURL.startsWith("http://") && !rawURL.startsWith("https://")) {
+        rawURL = `https://${rawURL}`;
+      }
+      const baseURL = rawURL ? rawURL.replace(/\/$/, "") : "";
       const response = await fetch(`${baseURL}/api/chat/${id}/stream`, {
         method: "POST",
         headers: {

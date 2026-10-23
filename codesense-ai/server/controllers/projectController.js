@@ -52,16 +52,22 @@ export async function createFromGithub(req, res) {
       status: "pending",
     });
 
-    res.status(201).json({ project });
-
-    // Fire-and-forget indexing; client polls GET /api/projects/:id for status.
-    fetchRepoFiles(owner, repo)
+    const indexingPromise = fetchRepoFiles(owner, repo)
       .then((files) => indexProject(project, files))
       .catch(async (err) => {
         project.status = "failed";
         project.errorMessage = err.message;
         await project.save();
       });
+
+    // On Vercel serverless, background processes freeze after response, so await completion
+    if (process.env.VERCEL) {
+      await indexingPromise;
+      const updatedProject = await Project.findById(project._id);
+      return res.status(201).json({ project: updatedProject || project });
+    }
+
+    res.status(201).json({ project });
   } catch (err) {
     res.status(500).json({ message: "Failed to create project", error: err.message });
   }
@@ -82,13 +88,20 @@ export async function createFromUpload(req, res) {
       status: "pending",
     });
 
-    res.status(201).json({ project });
-
     const files = uploaded
       .map((f) => ({ path: f.originalname, content: f.buffer.toString("utf-8") }))
       .filter((f) => isIndexable(f.path));
 
-    indexProject(project, files);
+    const indexingPromise = indexProject(project, files);
+
+    // On Vercel serverless, await completion before returning
+    if (process.env.VERCEL) {
+      await indexingPromise;
+      const updatedProject = await Project.findById(project._id);
+      return res.status(201).json({ project: updatedProject || project });
+    }
+
+    res.status(201).json({ project });
   } catch (err) {
     res.status(500).json({ message: "Failed to create project", error: err.message });
   }

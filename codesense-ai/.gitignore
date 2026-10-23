@@ -2,6 +2,8 @@ node_modules/
 .env
 dist/
 *.log
+data/
+server/data/
 
 # Python virtual environment
 ai-service/venv/

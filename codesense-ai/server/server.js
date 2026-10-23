@@ -92,6 +92,14 @@ app.get("/api/health", (req, res) =>
   })
 );
 
+// Auto-reconnect database on request (vital for serverless cold-starts)
+app.use(async (req, res, next) => {
+  if (mongoose.connection.readyState < 1) {
+    await connectDB();
+  }
+  next();
+});
+
 // API routes
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
@@ -106,14 +114,16 @@ app.use((err, req, res, next) => {
   });
 });
 
-const PORT = process.env.PORT || 5000;
-const HOST = "0.0.0.0";
+export default app;
 
-// Start server immediately so Render health checks pass without waiting for DB retries
-app.listen(PORT, HOST, () => {
-  console.log(`CodeSense AI API running on http://${HOST}:${PORT}`);
-  // Connect to database in the background
-  connectDB();
-});
+// Start server when run directly (local / Render / Docker). On Vercel, app is invoked as a serverless handler.
+if (!process.env.VERCEL) {
+  const PORT = process.env.PORT || 5000;
+  const HOST = "0.0.0.0";
+  app.listen(PORT, HOST, () => {
+    console.log(`CodeSense AI API running on http://${HOST}:${PORT}`);
+    connectDB();
+  });
+}
 
 
