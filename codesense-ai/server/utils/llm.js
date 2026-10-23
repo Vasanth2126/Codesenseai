@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const AI_SERVICE_URL = process.env.CODESENSE_AI_URL;
+const AI_SERVICE_URL = process.env.CODESENSE_AI_URL || "https://survive-graphical-tumor-markets.trycloudflare.com/generate";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
 
