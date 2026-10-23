@@ -41,6 +41,8 @@ class GenerateRequest(BaseModel):
     question: str
     context: str = ""
     stream: bool = False
+    max_tokens: int = 1024
+    temperature: float = 0.4
 
 
 class GenerateResponse(BaseModel):
@@ -121,13 +123,29 @@ def health():
 @app.post("/generate")
 def generate(request: GenerateRequest):
     try:
+        max_tokens = min(request.max_tokens or 1024, 2048)
+        temperature = request.temperature if request.temperature is not None else 0.45
+
+        system_instruction = (
+            "You are CodeSense AI, a senior software architect and codebase intelligence assistant.\n"
+            "Analyze the repository context and provide a thorough, professional, well-structured response in GitHub Markdown using these sections:\n\n"
+            "### 📌 Overview\n"
+            "Clear technical summary answering the user's question directly.\n\n"
+            "### 📂 Key Files & Responsibilities\n"
+            "List every relevant file using backticks (`path/to/file`) with a concise explanation of its role.\n\n"
+            "### 🔄 Step-by-Step Technical Flow\n"
+            "Walk through the complete execution flow (e.g. Frontend UI -> API Route -> Controller/Handler -> Database/State).\n\n"
+            "### 💡 Implementation Details & Endpoints\n"
+            "Mention the exact endpoints, functions, and code logic.\n\n"
+            "If the repository lacks direct context for the user's query, state what exists in the repository and explain the standard architectural pattern for it.\n"
+            "Always be detailed, comprehensive, and well-formatted. Never give a short single-sentence answer."
+        )
+
         if request.context.strip():
             prompt = f"""<|im_start|>system
-You are CodeSense AI, an AI coding assistant.
+{system_instruction}
 
-Answer the user's question using the repository context provided below.
-
-Repository context:
+Repository Context:
 {request.context}
 <|im_end|>
 
@@ -139,7 +157,7 @@ Repository context:
 """
         else:
             prompt = f"""<|im_start|>system
-You are CodeSense AI, an AI coding assistant.
+{system_instruction}
 <|im_end|>
 
 <|im_start|>user
@@ -165,11 +183,11 @@ You are CodeSense AI, an AI coding assistant.
             generation_kwargs = dict(
                 **inputs,
                 streamer=streamer,
-                max_new_tokens=512,
-                temperature=0.2,
+                max_new_tokens=max_tokens,
+                temperature=temperature,
                 do_sample=True,
-                top_p=0.9,
-                repetition_penalty=1.05,
+                top_p=0.92,
+                repetition_penalty=1.08,
             )
             thread = Thread(target=model.generate, kwargs=generation_kwargs)
             thread.start()
@@ -184,11 +202,11 @@ You are CodeSense AI, an AI coding assistant.
         with torch.no_grad():
             outputs = model.generate(
                 **inputs,
-                max_new_tokens=512,
-                temperature=0.2,
+                max_new_tokens=max_tokens,
+                temperature=temperature,
                 do_sample=True,
-                top_p=0.9,
-                repetition_penalty=1.05,
+                top_p=0.92,
+                repetition_penalty=1.08,
             )
 
         generated_tokens = outputs[0][inputs["input_ids"].shape[1]:]

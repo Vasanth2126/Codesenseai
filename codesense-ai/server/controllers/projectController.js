@@ -24,9 +24,56 @@ inMemoryProjects.set(defaultProjId, {
 });
 
 inMemoryDocuments.set(defaultProjId, [
-  { filePath: "server/server.js", content: "import express from 'express';\nimport cors from 'cors';\nconst app = express();\napp.use(cors());", embedding: new Array(384).fill(0.1) },
-  { filePath: "server/utils/llm.js", content: "export async function askAI({ question, contextChunks }) { return 'CodeSense AI Answer'; }", embedding: new Array(384).fill(0.1) },
-  { filePath: "client/src/pages/ProjectChat.jsx", content: "export default function ProjectChat() { return <ChatView />; }", embedding: new Array(384).fill(0.1) }
+  {
+    filePath: "server/controllers/authController.js",
+    content: "import bcrypt from 'bcryptjs';\nimport jwt from 'jsonwebtoken';\nimport User from '../models/User.js';\n\n// Login authentication controller: validates credentials, verifies bcrypt hash, returns JWT\nexport async function login(req, res) {\n  const { email, password } = req.body;\n  if (!email || !password) return res.status(400).json({ message: 'Email and password required' });\n  const user = await User.findOne({ email });\n  if (!user) return res.status(401).json({ message: 'Invalid credentials' });\n  const isMatch = await bcrypt.compare(password, user.password);\n  if (!isMatch) return res.status(401).json({ message: 'Invalid credentials' });\n  const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '7d' });\n  return res.json({ token, user: { id: user._id, email: user.email } });\n}\n\nexport async function register(req, res) {\n  const { email, password } = req.body;\n  const hashedPassword = await bcrypt.hash(password, 10);\n  const user = await User.create({ email, password: hashedPassword });\n  const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET);\n  return res.status(201).json({ token, user });\n}",
+    embedding: new Array(384).fill(0.1),
+  },
+  {
+    filePath: "server/routes/authRoutes.js",
+    content: "import express from 'express';\nimport { register, login, getMe } from '../controllers/authController.js';\nimport { requireAuth } from '../middleware/authMiddleware.js';\n\nconst router = express.Router();\n// Authentication endpoints for user login, signup, and session verification\nrouter.post('/register', register);\nrouter.post('/login', login);\nrouter.get('/me', requireAuth, getMe);\n\nexport default router;",
+    embedding: new Array(384).fill(0.1),
+  },
+  {
+    filePath: "server/models/User.js",
+    content: "import mongoose from 'mongoose';\n\n// MongoDB User schema storing user credentials and auth profile\nconst userSchema = new mongoose.Schema({\n  email: { type: String, required: true, unique: true, lowercase: true, trim: true },\n  password: { type: String, required: true },\n  createdAt: { type: Date, default: Date.now },\n});\n\nexport default mongoose.models.User || mongoose.model('User', userSchema);",
+    embedding: new Array(384).fill(0.1),
+  },
+  {
+    filePath: "client/src/pages/Login.jsx",
+    content: "import React, { useState } from 'react';\nimport { useAuth } from '../context/AuthContext.js';\nimport { useNavigate, Link } from 'react-router-dom';\n\n// Login page component: renders email/password input form, handles submit, manages auth errors\nexport default function Login() {\n  const [email, setEmail] = useState('');\n  const [password, setPassword] = useState('');\n  const { login } = useAuth();\n  const navigate = useNavigate();\n\n  const handleSubmit = async (e) => {\n    e.preventDefault();\n    try {\n      await login(email, password);\n      navigate('/dashboard');\n    } catch (err) {\n      setError(err.message || 'Login failed');\n    }\n  };\n  return <form onSubmit={handleSubmit}><input value={email} onChange={e=>setEmail(e.target.value)} /><input type='password' value={password} onChange={e=>setPassword(e.target.value)} /><button type='submit'>Sign In</button></form>;\n}",
+    embedding: new Array(384).fill(0.1),
+  },
+  {
+    filePath: "client/src/context/AuthContext.jsx",
+    content: "import React, { createContext, useContext, useState, useEffect } from 'react';\nimport api from '../api/axios.js';\n\n// AuthContext manages the current user JWT session and login/logout state\nconst AuthContext = createContext(null);\nexport const AuthProvider = ({ children }) => {\n  const [user, setUser] = useState(null);\n  const [token, setToken] = useState(localStorage.getItem('codesense_token'));\n\n  const login = async (email, password) => {\n    const res = await api.post('/auth/login', { email, password });\n    localStorage.setItem('codesense_token', res.data.token);\n    setToken(res.data.token);\n    setUser(res.data.user);\n  };\n\n  const logout = () => {\n    localStorage.removeItem('codesense_token');\n    setToken(null);\n    setUser(null);\n  };\n  return <AuthContext.Provider value={{ user, token, login, logout }}>{children}</AuthContext.Provider>;\n};\nexport const useAuth = () => useContext(AuthContext);",
+    embedding: new Array(384).fill(0.1),
+  },
+  {
+    filePath: "server/server.js",
+    content: "import express from 'express';\nimport cors from 'cors';\nimport authRoutes from './routes/authRoutes.js';\nimport projectRoutes from './routes/projectRoutes.js';\nimport chatRoutes from './routes/chatRoutes.js';\n\nconst app = express();\napp.use(cors());\napp.use(express.json());\n\n// Mount application routes\napp.use('/api/auth', authRoutes);\napp.use('/api/projects', projectRoutes);\napp.use('/api/chat', chatRoutes);",
+    embedding: new Array(384).fill(0.1),
+  },
+  {
+    filePath: "server/controllers/chatController.js",
+    content: "import { embedText, cosineSimilarity, streamAI, askAI } from '../utils/llm.js';\n\n// Chat and RAG controller: searches vector index, retrieves relevant chunks, streams AI answer\nexport async function streamQuestion(req, res) {\n  const { question } = req.body;\n  const queryEmbedding = await embedText(question);\n  // Rank chunks with cosine similarity + keyword matching\n  await streamAI({ question, contextChunks: ranked, onToken: t => res.write(...), onComplete: () => res.end() });\n}",
+    embedding: new Array(384).fill(0.1),
+  },
+  {
+    filePath: "server/utils/llm.js",
+    content: "import axios from 'axios';\n// Calls fine-tuned Python Qwen-Coder model via CODESENSE_AI_URL with SSE token streaming\nexport async function streamAI({ question, contextChunks, onToken, onComplete }) {\n  const url = process.env.CODESENSE_AI_URL || 'http://127.0.0.1:8000/generate';\n  const response = await axios.post(url, { question, context, stream: true }, { responseType: 'stream' });\n}",
+    embedding: new Array(384).fill(0.1),
+  },
+  {
+    filePath: "client/src/pages/ProjectChat.jsx",
+    content: "import React, { useState } from 'react';\n// Project chat interface: streams answers via Server-Sent Events (SSE), cites source files, and auto-generates README\nexport default function ProjectChat() {\n  const handleAsk = async (question) => {\n    const response = await fetch(`/api/chat/${id}/stream`, { method: 'POST', body: JSON.stringify({ question }) });\n    // Reads token stream from backend in real time\n  };\n}",
+    embedding: new Array(384).fill(0.1),
+  },
+  {
+    filePath: "client/src/pages/Dashboard.jsx",
+    content: "import React from 'react';\n// Dashboard page: lists indexed repositories, allows adding new GitHub repo URLs for RAG ingestion\nexport default function Dashboard() {\n  return <div><h1>Codebase Indexer</h1></div>;\n}",
+    embedding: new Array(384).fill(0.1),
+  },
 ]);
 
 // Kicks off indexing in the background so the HTTP request returns quickly.

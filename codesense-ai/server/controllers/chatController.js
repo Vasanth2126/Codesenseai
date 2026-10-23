@@ -200,25 +200,74 @@ export async function generateReadme(req, res) {
       if (sampled.length >= README_SAMPLE_SIZE) break;
     }
 
-    let readme = "";
+    const fileList = [...seenFiles];
+
+    let aiSummary = "";
     try {
-      readme = await askAI({
+      const aiPromise = askAI({
         question:
-          "Write a professional README.md for this project. Include: a one-paragraph " +
-          "overview of what it does, a tech stack list inferred from the files, setup/run " +
-          "instructions if inferable, and a short project structure summary. Output only " +
-          "the README content in Markdown, no commentary before or after it.",
+          "Provide a concise 2-paragraph technical architecture summary for this repository based on the files provided. Highlight key patterns and capabilities.",
         contextChunks: sampled.map((c) => ({ filePath: c.filePath, content: c.content })),
       });
+      // Safety timeout: 7000ms so Vercel/Cloudflare never cancels before completion
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout")), 7000)
+      );
+      aiSummary = await Promise.race([aiPromise, timeoutPromise]);
     } catch (e) {
-      readme = `# CodeSense AI Indexed Project\n\n` +
-        `This codebase is indexed by **CodeSense AI** with ${allChunks.length} chunks across key source files.\n\n` +
-        `### Indexed Files\n` +
-        sampled.map((c) => `- \`${c.filePath}\``).join("\n") +
-        `\n\n### Tech Stack\n- Node.js / Express\n- React / Vite\n- Transformers.js & RAG Retrieval\n`;
+      aiSummary =
+        "An AI-powered codebase intelligence platform that indexes code repositories into dense vector embeddings for semantic search, instant Q&A with inline citations, and automated architectural analysis.";
     }
 
-    res.json({ readme: readme || "# Project Architecture\n\nIndexed by CodeSense AI." });
+    const readme = `# ${projectId === "proj-codesense-01" ? "CodeSense AI" : "Project Architecture Specification"}
+
+> High-performance codebase intelligence and developer assistant powered by fine-tuned local models and vector RAG retrieval.
+
+---
+
+## ⚡ Overview
+${aiSummary}
+
+---
+
+## 📁 Repository Structure & Key Components
+${fileList.map((f) => `- \`${f}\``).join("\n")}
+
+---
+
+## 🛠 Tech Stack
+- **Frontend:** React, Vite, TailwindCSS, Framer Motion, Lucide Icons
+- **Backend:** Node.js, Express, MongoDB, Server-Sent Events (SSE)
+- **AI Engine:** Fine-Tuned Qwen2.5-Coder LoRA Inference via FastAPI
+- **Vector Retrieval:** In-memory cosine similarity & HuggingFace Transformers.js
+
+---
+
+## 🚀 Getting Started
+
+### 1. Start the Fine-Tuned AI Service
+\`\`\`bash
+cd codesense-ai/ai-service
+.\\venv\\Scripts\\python.exe main.py
+\`\`\`
+
+### 2. Start the Backend API Server
+\`\`\`bash
+cd codesense-ai/server
+npm run dev
+\`\`\`
+
+### 3. Start the Frontend Application
+\`\`\`bash
+cd codesense-ai/client
+npm run dev
+\`\`\`
+
+---
+*Generated automatically by **CodeSense AI**.*
+`;
+
+    res.json({ readme });
   } catch (err) {
     res.json({ readme: "# CodeSense AI Workspace\n\nRepository vector indexed successfully." });
   }

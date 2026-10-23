@@ -129,10 +129,12 @@ function buildContext(contextChunks = []) {
 function buildPromptMessages(question, contextChunks) {
   const contextBlock = buildContext(contextChunks);
   const systemPrompt =
-    "You are CodeSense AI, a software engineering assistant for professional developers. " +
-    "Answer questions about a codebase using only the provided context chunks. " +
-    "Be direct and concise — cite file paths inline where relevant. " +
-    "If the context doesn't contain the answer, state that clearly instead of speculating.";
+    "You are CodeSense AI, an expert software architecture and engineering assistant. " +
+    "Analyze the codebase thoroughly and provide a rich, comprehensive, and well-structured explanation in clean Markdown. " +
+    "Use clear headings (###), numbered steps, and bullet points. " +
+    "Always cite specific source files and components with backticks (`path/to/file`). " +
+    "Explain the complete end-to-end flow and architecture in detail with code examples where helpful. " +
+    "If the repository lacks direct context for the question, state what is present in the codebase and explain the standard implementation pattern.";
 
   return [
     { role: "system", content: systemPrompt },
@@ -146,14 +148,20 @@ function buildPromptMessages(question, contextChunks) {
 /**
  * Send a question to custom Python backend if configured.
  */
-async function callCustomAIService(question, contextChunks = []) {
+async function callCustomAIService(question, contextChunks = [], options = {}) {
   const url = getCustomAIUrl();
   if (!url) return null;
   const context = buildContext(contextChunks);
 
   const response = await axios.post(
     url,
-    { question, context, stream: false },
+    {
+      question,
+      context,
+      stream: false,
+      max_tokens: options.max_tokens || 1024,
+      temperature: options.temperature || 0.45,
+    },
     { headers: { "Content-Type": "application/json" }, timeout: 120000 }
   );
 
@@ -243,7 +251,7 @@ export async function streamAI({
       const context = buildContext(contextChunks);
       const response = await axios.post(
         customUrl,
-        { question, context, stream: true },
+        { question, context, stream: true, max_tokens: 1200, temperature: 0.45 },
         {
           headers: { "Content-Type": "application/json" },
           responseType: "stream",
