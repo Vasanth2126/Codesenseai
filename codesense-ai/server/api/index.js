@@ -2,7 +2,7 @@ import app from "../server.js";
 import { connectDB } from "../config/db.js";
 
 export default async function handler(req, res) {
-  // Ensure MongoDB is connected before dispatching to Express
-  await connectDB();
+  // Fire connection attempt in background without blocking
+  connectDB().catch(() => {});
   return app(req, res);
 }

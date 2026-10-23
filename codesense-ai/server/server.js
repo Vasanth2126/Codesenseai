@@ -92,10 +92,10 @@ app.get("/api/health", (req, res) =>
   })
 );
 
-// Auto-reconnect database on request (vital for serverless cold-starts)
-app.use(async (req, res, next) => {
+// Auto-reconnect database on request (non-blocking for fast serverless responses)
+app.use((req, res, next) => {
   if (mongoose.connection.readyState < 1) {
-    await connectDB();
+    connectDB().catch(() => {});
   }
   next();
 });
