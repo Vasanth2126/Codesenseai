@@ -69,7 +69,16 @@ export default function ProjectChat() {
   const inputRef = useRef(null);
 
   useEffect(() => {
-    api.get(`/projects/${id}`).then((res) => setProject(res.data.project));
+    api
+      .get(`/projects/${id}`)
+      .then((res) => setProject(res.data.project))
+      .catch(() => {
+        try {
+          const local = JSON.parse(localStorage.getItem("codesense_saved_projects") || "[]");
+          const found = local.find((p) => p._id === id || p.id === id);
+          if (found) setProject(found);
+        } catch {}
+      });
     api.get(`/chat/${id}/history`).then((res) => setMessages(res.data.messages || []));
   }, [id]);
 

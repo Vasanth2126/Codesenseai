@@ -4,6 +4,7 @@ import Document from "../models/Document.js";
 import { fetchRepoFiles, parseGithubUrl } from "../utils/github.js";
 import { chunkFile, isIndexable } from "../utils/chunker.js";
 import { embedText } from "../utils/llm.js";
+import { doctorProject, doctorDocuments } from "../utils/doctorRepoSeed.js";
 
 // Global in-memory cache for high-availability demo fallback
 export const inMemoryProjects = new Map();
@@ -76,6 +77,10 @@ inMemoryDocuments.set(defaultProjId, [
   },
 ]);
 
+// Initialize Doctor Appointment Booking project
+inMemoryProjects.set(doctorProject._id, doctorProject);
+inMemoryDocuments.set(doctorProject._id, doctorDocuments);
+
 // Kicks off indexing in the background so the HTTP request returns quickly.
 async function indexProject(project, files, projId) {
   try {
@@ -127,6 +132,24 @@ export async function createFromGithub(req, res) {
     if (!repoUrl) return res.status(400).json({ message: "repoUrl is required" });
 
     const { owner, repo } = parseGithubUrl(repoUrl);
+    const lowerUrl = repoUrl.toLowerCase();
+
+    // Check if repo matches pre-indexed Doctor Appointment Booking workspace
+    if (lowerUrl.includes("doctor-appointment-booking") || repo.toLowerCase().includes("doctor-appointment-booking")) {
+      const existing = inMemoryProjects.get("proj-doctor-01");
+      if (existing) {
+        return res.status(201).json({ project: existing });
+      }
+    }
+
+    // Check if repo matches CodeSense AI workspace
+    if (lowerUrl.includes("codesenseai") || repo.toLowerCase().includes("codesenseai")) {
+      const existing = inMemoryProjects.get("proj-codesense-01");
+      if (existing) {
+        return res.status(201).json({ project: existing });
+      }
+    }
+
     const projId = `proj-${Date.now()}`;
     const projectData = {
       _id: projId,
@@ -135,7 +158,7 @@ export async function createFromGithub(req, res) {
       name: name || `${owner}/${repo}`,
       sourceType: "github",
       sourceRef: repoUrl,
-      status: "indexing",
+      status: "ready", // Set to ready so workspace can be opened immediately
       fileCount: 0,
       chunkCount: 0,
       createdAt: new Date(),
@@ -149,19 +172,14 @@ export async function createFromGithub(req, res) {
       } catch (e) {}
     }
 
-    const indexingPromise = fetchRepoFiles(owner, repo)
+    // Index files in background without blocking response or causing Vercel timeouts
+    fetchRepoFiles(owner, repo)
       .then((files) => indexProject(project, files, projId))
       .catch((err) => {
-        projectData.status = "ready";
-        inMemoryProjects.set(projId, projectData);
+        console.warn("[indexing error]", err.message);
       });
 
-    if (process.env.VERCEL) {
-      await indexingPromise;
-      return res.status(201).json({ project: inMemoryProjects.get(projId) || projectData });
-    }
-
-    res.status(201).json({ project });
+    return res.status(201).json({ project: projectData });
   } catch (err) {
     console.error("[createFromGithub error]", err);
     res.status(500).json({ message: "Failed to create project", error: err.message });
@@ -182,7 +200,7 @@ export async function createFromUpload(req, res) {
       name: name || "Uploaded project",
       sourceType: "upload",
       sourceRef: `upload-${Date.now()}`,
-      status: "pending",
+      status: "ready",
       createdAt: new Date(),
     };
     inMemoryProjects.set(projId, projectData);
@@ -198,29 +216,33 @@ export async function createFromUpload(req, res) {
       .map((f) => ({ path: f.originalname, content: f.buffer.toString("utf-8") }))
       .filter((f) => isIndexable(f.path));
 
-    const indexingPromise = indexProject(project, files, projId);
+    indexProject(project, files, projId).catch(console.error);
 
-    if (process.env.VERCEL) {
-      await indexingPromise;
-      return res.status(201).json({ project: inMemoryProjects.get(projId) || projectData });
-    }
-
-    res.status(201).json({ project });
+    return res.status(201).json({ project: projectData });
   } catch (err) {
     res.status(500).json({ message: "Failed to create project", error: err.message });
   }
 }
 
 export async function listProjects(req, res) {
+  let dbProjects = [];
   try {
     if (mongoose.connection.readyState === 1) {
-      const projects = await Project.find({ owner: req.userId }).sort({ createdAt: -1 });
-      if (projects && projects.length > 0) return res.json({ projects });
+      dbProjects = (await Project.find({ owner: req.userId }).sort({ createdAt: -1 })) || [];
     }
   } catch (err) {}
 
-  const projects = Array.from(inMemoryProjects.values());
-  res.json({ projects });
+  const projectMap = new Map();
+  // Always include pre-seeded in-memory projects (Codesenseai + Doctor Appointment Booking)
+  for (const p of inMemoryProjects.values()) {
+    projectMap.set(p._id, p);
+  }
+  // Overlay database projects if available
+  for (const p of dbProjects) {
+    projectMap.set(p._id.toString(), p);
+  }
+
+  res.json({ projects: Array.from(projectMap.values()) });
 }
 
 export async function getProject(req, res) {
@@ -234,6 +256,18 @@ export async function getProject(req, res) {
 
   const mem = inMemoryProjects.get(id);
   if (mem) return res.json({ project: mem });
+
+  // Doctor Appointment Booking workspace lookup
+  if (id === "proj-doctor-01" || id.toLowerCase().includes("doctor")) {
+    const docProj = inMemoryProjects.get("proj-doctor-01");
+    if (docProj) return res.json({ project: docProj });
+  }
+
+  // CodeSense AI workspace lookup
+  if (id === "proj-codesense-01" || id.toLowerCase().includes("codesense")) {
+    const csProj = inMemoryProjects.get("proj-codesense-01");
+    if (csProj) return res.json({ project: csProj });
+  }
 
   res.json({
     project: {

@@ -153,14 +153,17 @@ async function callCustomAIService(question, contextChunks = [], options = {}) {
   if (!url) return null;
   const context = buildContext(contextChunks);
 
+  const isReadme = options.is_readme || (question.includes("README") && (question.toLowerCase().includes("write") || question.toLowerCase().includes("generate")));
+
   const response = await axios.post(
     url,
     {
       question,
       context,
       stream: false,
-      max_tokens: options.max_tokens || 1024,
-      temperature: options.temperature || 0.45,
+      is_readme: isReadme,
+      max_tokens: options.max_tokens || (isReadme ? 1536 : 1024),
+      temperature: options.temperature || (isReadme ? 0.35 : 0.45),
     },
     { headers: { "Content-Type": "application/json" }, timeout: 120000 }
   );
@@ -173,14 +176,14 @@ async function callCustomAIService(question, contextChunks = [], options = {}) {
 /**
  * Generate a normal, non-streaming AI response.
  */
-export async function askAI({ question, contextChunks = [] }) {
+export async function askAI({ question, contextChunks = [], max_tokens, is_readme }) {
   const customUrl = getCustomAIUrl();
   let customError = null;
 
   // 1. Try Custom Python AI Service if configured
   if (customUrl) {
     try {
-      const customAnswer = await callCustomAIService(question, contextChunks);
+      const customAnswer = await callCustomAIService(question, contextChunks, { max_tokens, is_readme });
       if (customAnswer) return customAnswer;
     } catch (err) {
       customError = err.response?.data?.detail || err.message;

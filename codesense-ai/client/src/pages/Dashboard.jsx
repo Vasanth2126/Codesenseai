@@ -10,9 +10,10 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { cn } from "../lib/utils.js";
 
 const SAMPLE_REPOS = [
+  { name: "Vasanth2126/Doctor-appointment-booking", url: "https://github.com/Vasanth2126/Doctor-appointment-booking" },
+  { name: "Vasanth2126/Codesenseai", url: "https://github.com/Vasanth2126/Codesenseai" },
   { name: "Vasanth2126/taskflow", url: "https://github.com/Vasanth2126/taskflow" },
-  { name: "expressjs/express", url: "https://github.com/expressjs/express" },
-  { name: "facebook/react", url: "https://github.com/facebook/react" }
+  { name: "expressjs/express", url: "https://github.com/expressjs/express" }
 ];
 
 const STATUS_META = {
@@ -60,10 +61,33 @@ export default function Dashboard() {
   async function loadProjects() {
     try {
       const { data } = await api.get("/projects");
-      setProjects(data.projects || []);
+      const serverProjects = data.projects || [];
+
+      const localStr = localStorage.getItem("codesense_saved_projects");
+      let localProjects = [];
+      try {
+        if (localStr) localProjects = JSON.parse(localStr);
+      } catch {}
+
+      const map = new Map();
+      serverProjects.forEach((p) => map.set(p._id || p.id, p));
+      localProjects.forEach((p) => {
+        const pid = p._id || p.id;
+        if (!map.has(pid)) map.set(pid, p);
+      });
+
+      const merged = Array.from(map.values());
+      setProjects(merged);
+      localStorage.setItem("codesense_saved_projects", JSON.stringify(merged));
       setLoaded(true);
     } catch (e) {
       console.error(e);
+      const localStr = localStorage.getItem("codesense_saved_projects");
+      if (localStr) {
+        try {
+          setProjects(JSON.parse(localStr));
+        } catch {}
+      }
       setLoaded(true);
     }
   }
@@ -80,7 +104,14 @@ export default function Dashboard() {
     setError("");
     setBusy(true);
     try {
-      await api.post("/projects/github", { repoUrl, name });
+      const { data } = await api.post("/projects/github", { repoUrl, name });
+      if (data?.project) {
+        setProjects((prev) => {
+          const next = [data.project, ...prev.filter((p) => p._id !== data.project._id && p.id !== data.project.id)];
+          localStorage.setItem("codesense_saved_projects", JSON.stringify(next));
+          return next;
+        });
+      }
       setRepoUrl("");
       setName("");
       loadProjects();
@@ -98,6 +129,11 @@ export default function Dashboard() {
     setDeletingId(id);
     try {
       await api.delete(`/projects/${id}`);
+      setProjects((prev) => {
+        const next = prev.filter((p) => p._id !== id && p.id !== id);
+        localStorage.setItem("codesense_saved_projects", JSON.stringify(next));
+        return next;
+      });
       loadProjects();
     } catch (err) {
       alert("Failed to delete project");

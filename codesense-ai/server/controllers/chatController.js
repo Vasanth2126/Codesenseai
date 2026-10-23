@@ -38,7 +38,9 @@ export async function streamQuestion(req, res) {
       project = await Project.findOne({ _id: projectId });
     } catch (e) {}
     if (!project) {
-      project = inMemoryProjects.get(projectId) || { _id: projectId, status: "ready", name: "CodeSense Workspace" };
+      project = inMemoryProjects.get(projectId) ||
+        (projectId.includes("doctor") ? inMemoryProjects.get("proj-doctor-01") : null) ||
+        inMemoryProjects.get("proj-codesense-01") || { _id: projectId, status: "ready", name: "CodeSense Workspace" };
     }
 
     // Set up SSE headers
@@ -55,7 +57,9 @@ export async function streamQuestion(req, res) {
       allChunks = await Document.find({ project: projectId });
     } catch (e) {}
     if (!allChunks || allChunks.length === 0) {
-      allChunks = inMemoryDocuments.get(projectId) || inMemoryDocuments.get("proj-codesense-01") || [];
+      allChunks = inMemoryDocuments.get(projectId) ||
+        (projectId.includes("doctor") ? inMemoryDocuments.get("proj-doctor-01") : null) ||
+        inMemoryDocuments.get("proj-codesense-01") || [];
     }
 
     const keywords = (question.toLowerCase().match(/[a-z0-9_]{3,}/g) || []);
@@ -127,7 +131,9 @@ export async function askQuestion(req, res) {
       project = await Project.findOne({ _id: projectId });
     } catch (e) {}
     if (!project) {
-      project = inMemoryProjects.get(projectId) || { _id: projectId, status: "ready" };
+      project = inMemoryProjects.get(projectId) ||
+        (projectId.includes("doctor") ? inMemoryProjects.get("proj-doctor-01") : null) ||
+        inMemoryProjects.get("proj-codesense-01") || { _id: projectId, status: "ready" };
     }
 
     const queryEmbedding = await embedText(question);
@@ -136,7 +142,9 @@ export async function askQuestion(req, res) {
       allChunks = await Document.find({ project: projectId });
     } catch (e) {}
     if (!allChunks || allChunks.length === 0) {
-      allChunks = inMemoryDocuments.get(projectId) || inMemoryDocuments.get("proj-codesense-01") || [];
+      allChunks = inMemoryDocuments.get(projectId) ||
+        (projectId.includes("doctor") ? inMemoryDocuments.get("proj-doctor-01") : null) ||
+        inMemoryDocuments.get("proj-codesense-01") || [];
     }
 
     const keywords = (question.toLowerCase().match(/[a-z0-9_]{3,}/g) || []);
@@ -243,7 +251,9 @@ export async function generateReadme(req, res) {
       project = await Project.findOne({ _id: projectId });
     } catch (e) {}
     if (!project) {
-      project = inMemoryProjects.get(projectId) || inMemoryProjects.get("proj-codesense-01") || { name: "Repository", sourceRef: "" };
+      project = inMemoryProjects.get(projectId) ||
+        (projectId.includes("doctor") ? inMemoryProjects.get("proj-doctor-01") : null) ||
+        inMemoryProjects.get("proj-codesense-01") || { name: "Repository", sourceRef: "" };
     }
 
     let allChunks = [];
@@ -251,7 +261,9 @@ export async function generateReadme(req, res) {
       allChunks = await Document.find({ project: projectId });
     } catch (e) {}
     if (!allChunks || allChunks.length === 0) {
-      allChunks = inMemoryDocuments.get(projectId) || inMemoryDocuments.get("proj-codesense-01") || [];
+      allChunks = inMemoryDocuments.get(projectId) ||
+        (projectId.includes("doctor") ? inMemoryDocuments.get("proj-doctor-01") : null) ||
+        inMemoryDocuments.get("proj-codesense-01") || [];
     }
 
     const repoName = project.name || "Repository";
@@ -302,12 +314,13 @@ export async function generateReadme(req, res) {
       const aiPromise = askAI({
         question: prompt,
         contextChunks: sampled.map((c) => ({ filePath: c.filePath, content: c.content })),
-        max_tokens: 1536,
+        max_tokens: 1024,
+        is_readme: true,
       });
 
       // Allow model ample generation time with safe fallback
       const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Timeout")), 18000)
+        setTimeout(() => reject(new Error("Timeout")), 65000)
       );
 
       aiReadme = await Promise.race([aiPromise, timeoutPromise]);

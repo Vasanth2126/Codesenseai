@@ -5,7 +5,7 @@ import mongoose from "mongoose";
 // collection out for a dedicated vector DB (Pinecone, Qdrant, Chroma, etc.)
 const documentSchema = new mongoose.Schema(
   {
-    project: { type: mongoose.Schema.Types.ObjectId, ref: "Project", required: true, index: true },
+    project: { type: mongoose.Schema.Types.Mixed, required: true, index: true },
     filePath: { type: String, required: true },
     chunkIndex: { type: Number, required: true },
     content: { type: String, required: true },
@@ -14,4 +14,4 @@ const documentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-export default mongoose.model("Document", documentSchema);
+export default mongoose.models.Document || mongoose.model("Document", documentSchema);
