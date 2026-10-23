@@ -110,7 +110,7 @@ app.use((err, req, res, next) => {
   console.error("[ServerError]", err);
   res.status(500).json({
     message: "Unexpected server error",
-    error: process.env.NODE_ENV === "development" ? err.message : undefined,
+    error: err.message || String(err),
   });
 });
 
